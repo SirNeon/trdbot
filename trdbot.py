@@ -1,7 +1,6 @@
 # known issues:
 # Some submissions produce 'NoneType' object has no attribute '__getitem__'. 
 # The bot currently just skips over those.
-import logging
 from sys import exit, stderr
 from time import sleep
 import praw
@@ -30,7 +29,7 @@ class trdbot(object):
         self.alreadyDone = set()
 
         # post to this subreddit
-        self.post_to = "mirrornetworktest"
+        self.post_to = "redditanalysis"
 
         # scan no more than this number of threads
         self.scrapeLimit = 25
@@ -146,7 +145,20 @@ if __name__ == "__main__":
                     trdBot.alreadyDone.remove(element)
 
         for subreddit in trdBot.subredditList:
-            submissions = trdBot.client.get_subreddit(subreddit).get_new(limit=trdBot.scrapeLimit)
+            try:
+                submissions = trdBot.client.get_subreddit(subreddit).get_new(limit=trdBot.scrapeLimit)
+
+            except HTTPError, e:
+                print e
+                logging.debug(str(e) + "\n\n")
+                # wait a minute and try again
+                sleep(60)
+                continue
+
+            except (praw.errors.APIException, Exception) as e:
+                print e
+                logging.debug(str(e) + "\n\n")
+                continue
 
             for i, submission in enumerate(submissions):
                 print "Scanning thread (%d / %d)..." % (i + 1, trdBot.scrapeLimit)
@@ -158,11 +170,10 @@ if __name__ == "__main__":
                 except HTTPError, e:
                     print e
                     logging.debug(str(e) + "\n\n")
-                    # wait a minute and try again
                     sleep(60)
                     continue
-                
-                except (praw.errors.APIException, Exception) as e:
+
+                except praw.errors.APIException, e:
                     print e
                     logging.debug(str(e) + "\n\n")
                     continue
