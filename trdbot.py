@@ -1,5 +1,6 @@
-# fixed bad style and added stuff for new features
-from datetime import datetime
+# known issues:
+# Some submissions produce 'NoneType' object has no attribute '__getitem__'. 
+# The bot currently just skips over those.
 import logging
 from sys import exit, stderr
 from time import sleep
@@ -7,7 +8,6 @@ import praw
 from requests import HTTPError
 
 
-# make it a class to improve maintainability and flexibility
 class trdbot(object):
 
 
@@ -16,27 +16,24 @@ class trdbot(object):
         Initialize the bot with some basic info.
         """
 
-        # optional logging
-        self.errorLogging = True
-
         self.userAgent = "/r/MirrorNetwork xposting bot"
 
         # list of subreddits to crawl
-        self.subredditList = set(["SubredditDrama", "Drama"])
+        self.subredditList = set(["SubredditDrama"])
 
         # subreddit flairs
-        self.flairList = [
-                {"subredditdrama": "SRD"}, {"drama": "MILEY"}
-            ]
+        self.flairList = {
+                "SubredditDrama": "SRD", "Drama": "MILEY"
+            }
 
-        # list of stuff already done
+        # list of threads already done
         self.alreadyDone = set()
 
         # post to this subreddit
-        self.post_to = "mirrornetworktest"
+        self.post_to = "redditanalysis"
 
-        # scrape no more than this number of threads
-        self.scrapLimit = 25
+        # scan no more than this number of threads
+        self.scrapeLimit = 25
 
 
     def login(self, username, password):
@@ -52,195 +49,161 @@ class trdbot(object):
         print "Login was successful."
 
 
-    def check_new(self, submissionID):
+    def get_content(self, submission):
         """
-        Checks if a submission has already been posted. Give
-        it the submission's ID.
-        """
-
-        if submissionID in self.alreadyDone:
-            return False
-
-        else:
-            return True
-
-
-    def check_post(self, submission):
-        """
-        Checks to see if the submission meets the necessary
-        criteria to be posted.
+        Gets data from the desired submission. Feed it the 
+        submission. It returns a tuple containing the title,
+        the post content, and the link to the source.
         """
 
         try:
-            subName = submission.subreddit.lower()
-            subScore = submission.score 
+            postID = submission.id
+            subName = submission.subreddit
+            postScore = submission.score
+            title = submission.title
+            permalink = submission.permalink.replace("www.reddit.com", "np.reddit.com")
 
         except AttributeError:
-            print "Failed to collect necessary data."
-            return False
+            raise Exception("Couldn't get submission attribute.")
 
-        # SRD threads need at least +10 karma
-        if subName == "subredditdrama":
-            if subScore >= 10:
-                return True
+        if postID not in self.alreadyDone:
+            self.alreadyDone.add(postID)
+            
+            # only submit posts that have at least +5 karma
+            if postScore >= 5:
 
-        # Drama threads need at least +3 karma
-        elif subName == "drama":
-            if subScore >= 3:
-                return True
+                if(submission.is_self):
+                    try:
+                        postBody = submission.selftext
 
-        # everything else needs at least +7 karma
-        else:
-            if subScore >= 7:
-                return True
+                    except AttributeError:
+                        raise Exception("Couldn't get submission text. Skipping...")
 
-        return False
+                    text = postBody.replace("www.reddit.com", "np.reddit.com")
+
+                    return (title, text, permalink)
+
+                else:
+                    url = submission.url.replace("www.reddit.com", "np.reddit.com")
+
+                return (title, url, permalink)
 
 
-    def submit_content(self, submission):
+    def submit_url(self, title, url):
         """
-        This will submit the post to Reddit. Give it a tuple with
-        the post title and then post body in it.
+        Submits a link post to Reddit. Feed it the post title 
+        and the url. It returns the submission object.
         """
-
-        title = submission.title
-
-        if(submission.is_self):
-            # swap out normal reddit links for np links
-            text = submission.selftext.replace("www.reddit.com", "np.reddit.com")
-
-        else:
-            text = submission.url.replace("www.reddit.com", "np.reddit.com")
 
         mySubreddit = self.client.get_subreddit(self.post_to)
 
-        mySubreddit.submit(title, text)
+        return mySubreddit.submit(title=title, url=url)
 
 
-    def log_err(self, error):
+    def submit_selfpost(self, title, text):
         """
-        This is for logging errors.
+        Submits the self post to reddit. Feed it the post 
+        title and post content. It returns the submission object.
         """
 
-        if(self.errorLogging):
-            logging.basicConfig(
-                filename="trdbot_logerr.log", filemode='a', 
-                format="%(asctime)s\nIn %(filename)s "
-                "(%(funcName)s:%(lineno)s): %(message)s", 
-                datefmt="%Y-%m-%d %H:%M", level=logging.DEBUG, 
-                stream=stderr
-            )
-            
-            logging.debug(str(error) + "\n\n")
+        mySubreddit = self.client.get_subreddit(self.post_to)
+
+        return mySubreddit.submit(title=title, text=text)
 
 
 if __name__ == "__main__":
-    myBot = trdbot()
+    trdBot = trdbot()
+
+    # set this to False to turn off error logging
+    # doing so is not recommended
+    errorLogging = True
+
+    if(errorLogging):
+        logging.basicConfig(
+            filename="trdbot_logerr.log", filemode='a', 
+            format="%(asctime)s\nIn %(filename)s "
+            "(%(funcName)s:%(lineno)s): %(message)s", 
+            datefmt="%Y-%m-%d %H:%M:%S", level=logging.DEBUG, 
+            stream=stderr
+            )
 
     username = ""
     password = ""
 
-    # set this to False to turn off logging
-    # I don't recommend that though
-    myBot.errorLogging = True
-
     try:
-        myBot.login(username, password)
+        trdBot.login(username, password)
 
     except (praw.errors.InvalidUser, praw.errors.InvalidUserPass, HTTPError) as e:
         print e
-        myBot.log_err(e)
+        logging.debug(str(e) + "\n\n")
         exit(1)
 
     while True:
         # keep the list from getting too big
-        if len(myBot.alreadyDone) == 1000:
-            for i, element in enumerate(myBot.alreadyDone):
+        if len(trdBot.alreadyDone) >= 1000:
+            for i, element in enumerate(trdBot.alreadyDone):
                 if i < 900:
-                    myBot.alreadyDone.remove(element)
+                    trdBot.alreadyDone.remove(element)
 
-        try:
-            # iterate through the list of subreddits to scan
-            for subreddit in myBot.subredditList:
-                # scan the new queue
-                submissions = myBot.client.get_subreddit(subreddit).get_new(limit=myBot.scrapLimit)
+        for subreddit in trdBot.subredditList:
+            submissions = trdBot.client.get_subreddit(subreddit).get_new(limit=trdBot.scrapeLimit)
 
-                for i, submission in enumerate(submissions):
+            for i, submission in enumerate(submissions):
+                print "Scanning thread (%d / %d)..." % (i + 1, trdBot.scrapeLimit)
+
+                try:
+                    print "Getting content from submission..."
+                    result = trdBot.get_content(submission)
+
+                except HTTPError, e:
+                    print e
+                    logging.debug(str(e) + "\n\n")
+                    # wait a minute and try again
+                    sleep(60)
+                    continue
+
+                try:
+                    # concatenate elements from the 
+                    # tuple to strings for submission
+                    title = "".join(str(result[0]))
+                    content = "".join(str(result[1]))
+                    permalink = "".join(str(result[2]))
+
+                except Exception, e:
+                    print e
+                    logging.debug(str(e) + "\n\n")
+                    continue
+
+                # try to submit the post 3 times before skipping
+                for i in range(0, 2):
                     try:
-                        print "Scanning thread (%d / %d)..." % (i + 1, myBot.scrapLimit)
-                        # make sure the bot hasn't already done
-                        # this thread before
-                        newPost = myBot.check_new(submission.id)
-                        
-                        # get the name of the sub where the
-                        # thread was posted to originally
-                        subName = submission.subreddit.lower()
+                        print "Submitting post..."
+                        if(submission.is_self):
+                            post = trdBot.submit_selfpost(title, content)
 
-                    except AttributeError:
+                        else:
+                            post = trdBot.submit_url(title, content)
+
+                        print "Setting flair..."
+                        trdBot.client.set_flair(trdBot.post_to, post, flair_text=trdBot.flairList[subreddit])
+
+                        print "Adding source comment..."
+                        post.add_comment("[Link to source](" + permalink + ").")
+                        break
+
+                    except HTTPError, e:
+                        trdBot.retry += 1
+                        print e
+                        logging.debug(str(e) + "\n\n")
+                        sleep(60)
                         continue
 
-                    if(newPost):
-                        print "Checking if post is worthy..."
-                        # make sure the post meets the criteria
-                        # necessary to xpost it
-                        goodPost = self.check_post(submission)
+                    except (praw.errors.APIException, Exception) as e:
+                        trdBot.retry += 1
+                        print e
+                        logging.debug(str(e) + "\n\n")
+                        continue
 
-                    if(goodPost):
-                        myBot.alreadyDone.add(submission.id)
-
-                        # keep trying to submit the post until
-                        # either it's successful or you get an 
-                        # error besides HTTPError
-                        while True:
-                            try:
-                                print "Submitting thread..."
-                                post = myBot.submit_content(submission)
-                                break
-
-                            except HTTPError, e:
-                                print str(e) + "Sleeping...trying again..."
-                                myBot.log_err(e)
-                                sleep(60)
-
-                            # keyboard interrupt will skip post 
-                            # instead of killing the bot
-                            except KeyboardInterrupt:
-                                print "Skipping post..."
-                                break
-
-                            except Exception, e:
-                                print str(e) + "Skipping thread..."
-                                myBot.log_err(e)
-                                break
-
-                    if(post):
-                        # try to assign flair 3 times
-                        # could have it try more, but that
-                        # doesn't seem worth the time
-                        for i in range(0, 2):
-                            try:
-                                print "Setting flair..."
-                                post.set_flair(myBot.flairList[subName])
-                                print "Adding link to source..."
-                                post.add_comment("[Comments in source subreddit](%s)", submission.permalink)
-                                break
-
-                            except HTTPError, e:
-                                print str(e) + "Sleeping... trying again..."
-                                sleep(60)
-                                continue
-
-                            except KeyboardInterrupt:
-                                print "Skipping flair/commenting..."
-                                break
-
-                            except Exception, e:
-                                print str(e) + "Skipping..."
-                                sleep(60)
-                                break
-
-        except (HTTPError, Exception) as e:
-            print str(e) + "Sleeping... trying again..."
-            myBot.log_err(e)
-            sleep(60)
-            continue
+                    except KeyboardInterrupt:
+                        print "Skipping thread..."
+                        break
