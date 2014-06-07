@@ -1,6 +1,7 @@
 # known issues:
 # Some submissions produce 'NoneType' object has no attribute '__getitem__'. 
 # The bot currently just skips over those.
+import logging
 from sys import exit, stderr
 from time import sleep
 import praw
