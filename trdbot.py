@@ -18,7 +18,7 @@ class trdbot(object):
         self.userAgent = "/r/MirrorNetwork xposting bot"
 
         # list of subreddits to crawl
-        self.subredditList = set(["SubredditDrama"])
+        self.subredditList = set(["SubredditDrama", "Drama"])
 
         # subreddit flairs
         self.flairList = {
@@ -29,7 +29,7 @@ class trdbot(object):
         self.alreadyDone = set()
 
         # post to this subreddit
-        self.post_to = "redditanalysis"
+        self.post_to = "mirrornetworktest"
 
         # scan no more than this number of threads
         self.scrapeLimit = 25
