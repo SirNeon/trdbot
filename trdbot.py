@@ -30,7 +30,7 @@ class trdbot(object):
         self.alreadyDone = set()
 
         # post to this subreddit
-        self.post_to = "redditanalysis"
+        self.post_to = "mirrornetworktest"
 
         # scan no more than this number of threads
         self.scrapeLimit = 25
@@ -160,6 +160,11 @@ if __name__ == "__main__":
                     logging.debug(str(e) + "\n\n")
                     # wait a minute and try again
                     sleep(60)
+                    continue
+                
+                except (praw.errors.APIException, Exception) as e:
+                    print e
+                    logging.debug(str(e) + "\n\n")
                     continue
 
                 try:
