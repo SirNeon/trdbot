@@ -1,7 +1,5 @@
-# known issues:
-# Some submissions produce 'NoneType' object has no attribute '__getitem__'. 
-# The bot currently just skips over those.
 import logging
+from pprint import pprint
 from sys import exit, stderr
 from time import sleep
 import praw
@@ -16,14 +14,16 @@ class trdbot(object):
         Initialize the bot with some basic info.
         """
 
-        self.userAgent = "/r/MirrorNetwork xposting bot"
+        self.userAgent = "/r/MirrorNetwork xposting bot by /u/SirNeon"
 
         # list of subreddits to crawl
-        self.subredditList = set(["SubredditDrama", "Drama"])
+        self.subredditList = set([
+                    "SubredditDrama", "Drama", 
+                ])
 
         # subreddit flairs
         self.flairList = {
-                "SubredditDrama": "SRD", "Drama": "MILEY"
+                "SubredditDrama": "SRD", "Drama": "Drama", 
             }
 
         # list of threads already done
@@ -57,36 +57,28 @@ class trdbot(object):
         """
 
         try:
-            postID = submission.id
             subName = submission.subreddit
-            postScore = submission.score
             title = submission.title
             permalink = submission.permalink.replace("www.reddit.com", "np.reddit.com")
 
         except AttributeError:
             raise Exception("Couldn't get submission attribute.")
 
-        if postID not in self.alreadyDone:
-            self.alreadyDone.add(postID)
-            
-            # only submit posts that have at least +5 karma
-            if postScore >= 5:
+        if(submission.is_self):
+            try:
+                postBody = submission.selftext
 
-                if(submission.is_self):
-                    try:
-                        postBody = submission.selftext
+            except AttributeError:
+                raise Exception("Couldn't get submission text. Skipping...")
 
-                    except AttributeError:
-                        raise Exception("Couldn't get submission text. Skipping...")
+            text = postBody.replace("www.reddit.com", "np.reddit.com")
 
-                    text = postBody.replace("www.reddit.com", "np.reddit.com")
+            return (title, text, permalink)
 
-                    return (title, text, permalink)
+        else:
+            url = submission.url.replace("www.reddit.com", "np.reddit.com")
 
-                else:
-                    url = submission.url.replace("www.reddit.com", "np.reddit.com")
-
-                return (title, url, permalink)
+        return (title, url, permalink)
 
 
     def submit_url(self, title, url):
@@ -146,6 +138,8 @@ if __name__ == "__main__":
                     trdBot.alreadyDone.remove(element)
 
         for subreddit in trdBot.subredditList:
+            print "Scanning /r/%s..." % subreddit
+
             try:
                 submissions = trdBot.client.get_subreddit(subreddit).get_new(limit=trdBot.scrapeLimit)
 
@@ -165,8 +159,16 @@ if __name__ == "__main__":
                 print "Scanning thread (%d / %d)..." % (i + 1, trdBot.scrapeLimit)
 
                 try:
-                    print "Getting content from submission..."
-                    result = trdBot.get_content(submission)
+                    postID = submission.id
+
+                except AttributeError:
+                    print "Failed to get submission ID. Skipping..."
+                    continue
+
+                try:
+                    if postID not in trdBot.alreadyDone:
+                        print "Getting content from submission..."
+                        result = trdBot.get_content(submission)
 
                 except HTTPError, e:
                     print e
@@ -192,35 +194,38 @@ if __name__ == "__main__":
                     continue
 
                 # try to submit the post 3 times before skipping
-                for i in range(0, 2):
+                for i in range(0, 3):
                     try:
-                        print "Submitting post..."
-                        if(submission.is_self):
-                            post = trdBot.submit_selfpost(title, content)
+                        if postID not in trdBot.alreadyDone:
+                            print "Submitting post..."
+                            if(submission.is_self):
+                                post = trdBot.submit_selfpost(title, content)
 
-                        else:
-                            post = trdBot.submit_url(title, content)
+                            else:
+                                post = trdBot.submit_url(title, content)
 
-                        print "Setting flair..."
-                        trdBot.client.set_flair(trdBot.post_to, post, flair_text=trdBot.flairList[subreddit])
+                            trdBot.alreadyDone.add(postID)
 
-                        print "Adding source comment..."
-                        post.add_comment("[Link to source](" + permalink + ").")
-                        break
+                            print "Setting flair..."
+                            trdBot.client.set_flair(trdBot.post_to, post, flair_text=trdBot.flairList[subreddit])
+
+                            print "Adding source comment..."
+                            post.add_comment("[Link to source](" + permalink + ").")
+                            break
 
                     except HTTPError, e:
-                        trdBot.retry += 1
                         print e
                         logging.debug(str(e) + "\n\n")
                         sleep(60)
                         continue
 
                     except (praw.errors.APIException, Exception) as e:
-                        trdBot.retry += 1
                         print e
-                        logging.debug(str(e) + "\n\n")
-                        continue
+                        
+                        if str(e) == "`that link has already been submitted` on field `url`":
+                            trdBot.alreadyDone.add(postID)
+                            break
 
-                    except KeyboardInterrupt:
-                        print "Skipping thread..."
-                        break
+                        else:
+                            logging.debug(str(e) + "\n\n")
+                            continue
