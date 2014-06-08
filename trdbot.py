@@ -1,5 +1,4 @@
 import logging
-from pprint import pprint
 from sys import exit, stderr
 from time import sleep
 import praw
