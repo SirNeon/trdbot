@@ -2,7 +2,7 @@ import logging
 from sys import exit, stderr
 from time import sleep
 import praw
-from requests import HTTPError
+from praw.errors import *
 
 
 class trdbot(object):
@@ -17,7 +17,7 @@ class trdbot(object):
 
         # list of subreddits to crawl
         self.subredditList = set([
-                    "SubredditDrama", "Drama", 
+                    "SubredditDrama", "Drama",
                 ])
 
         # subreddit flairs
@@ -42,7 +42,7 @@ class trdbot(object):
         """
 
         self.client = praw.Reddit(user_agent=self.userAgent)
-        print "Logging in as %s..." % username
+        print "Logging in as {0}...".format(username)
 
         self.client.login(username, password)
         print "Login was successful."
@@ -58,26 +58,33 @@ class trdbot(object):
         try:
             subName = submission.subreddit
             title = submission.title
+            postScore = submission.score
             permalink = submission.permalink.replace("www.reddit.com", "np.reddit.com")
 
         except AttributeError:
             raise Exception("Couldn't get submission attribute.")
 
-        if(submission.is_self):
-            try:
-                postBody = submission.selftext
+        # skip posts with less than +5 net karma
+        if postScore >= 5:
+            if(submission.is_self):
+                try:
+                    postBody = submission.selftext
 
-            except AttributeError:
-                raise Exception("Couldn't get submission text. Skipping...")
+                except AttributeError:
+                    raise Exception("Couldn't get submission text. Skipping...")
 
-            text = postBody.replace("www.reddit.com", "np.reddit.com")
+                text = postBody.replace("www.reddit.com", "np.reddit.com")
 
-            return (title, text, permalink)
+                return (title, text, permalink)
+
+            else:
+                url = submission.url.replace("www.reddit.com", "np.reddit.com")
+
+            return (title, url, permalink)
 
         else:
-            url = submission.url.replace("www.reddit.com", "np.reddit.com")
-
-        return (title, url, permalink)
+            print "Thread karma beneath necessary threshold."
+            return None
 
 
     def submit_url(self, title, url):
@@ -124,9 +131,9 @@ if __name__ == "__main__":
     try:
         trdBot.login(username, password)
 
-    except (praw.errors.InvalidUser, praw.errors.InvalidUserPass, HTTPError) as e:
+    except (InvalidUser, InvalidUserPass, RateLimitExceeded, NonExistentUser, APIException) as e:
         print e
-        logging.debug(str(e) + "\n\n")
+        logging.debug("Failed to login. " + str(e) + "\n\n")
         exit(1)
 
     while True:
@@ -137,25 +144,31 @@ if __name__ == "__main__":
                     trdBot.alreadyDone.remove(element)
 
         for subreddit in trdBot.subredditList:
-            print "Scanning /r/%s..." % subreddit
+            print "Scanning /r/{0}...".format(subreddit)
 
             try:
                 submissions = trdBot.client.get_subreddit(subreddit).get_new(limit=trdBot.scrapeLimit)
 
-            except HTTPError, e:
+            except InvalidSubreddit, e:
+                print e
+                logging.debug("Invalid subreddit. Removing from list." + str(e) + "\n\n")
+                trdBot.subredditList.remove(subreddit)
+                continue
+
+            except APIException, e:
                 print e
                 logging.debug(str(e) + "\n\n")
                 # wait a minute and try again
                 sleep(60)
                 continue
 
-            except (praw.errors.APIException, Exception) as e:
+            except (ClientException, Exception) as e:
                 print e
                 logging.debug(str(e) + "\n\n")
                 continue
 
             for i, submission in enumerate(submissions):
-                print "Scanning thread (%d / %d)..." % (i + 1, trdBot.scrapeLimit)
+                print "Scanning thread ({0} / {1})...".format(i + 1, trdBot.scrapeLimit)
 
                 try:
                     postID = submission.id
@@ -169,23 +182,27 @@ if __name__ == "__main__":
                         print "Getting content from submission..."
                         result = trdBot.get_content(submission)
 
-                except HTTPError, e:
+                except APIException, e:
                     print e
                     logging.debug(str(e) + "\n\n")
                     sleep(60)
                     continue
 
-                except praw.errors.APIException, e:
+                except (ClientException, Exception) as e:
                     print e
                     logging.debug(str(e) + "\n\n")
                     continue
 
                 try:
-                    # concatenate elements from the 
-                    # tuple to strings for submission
-                    title = "".join(str(result[0]))
-                    content = "".join(str(result[1]))
-                    permalink = "".join(str(result[2]))
+                    if result != None:
+                        # concatenate elements from the 
+                        # tuple to strings for submission
+                        title = "".join(str(result[0]))
+                        content = "".join(str(result[1]))
+                        permalink = "".join(str(result[2]))
+
+                    else:
+                        continue
 
                 except Exception, e:
                     print e
@@ -205,26 +222,31 @@ if __name__ == "__main__":
 
                             trdBot.alreadyDone.add(postID)
 
+                        try:
                             print "Setting flair..."
                             trdBot.client.set_flair(trdBot.post_to, post, flair_text=trdBot.flairList[subreddit])
 
-                            print "Adding source comment..."
-                            post.add_comment("[Link to source](" + permalink + ").")
-                            break
+                        except (APIException, ModeratorRequired) as e:
+                            print e
+                            logging.debug("Failed to set flair. " + str(e) + '\n' + str(post.permalink) + "\n\n")
 
-                    except HTTPError, e:
-                        print e
-                        logging.debug(str(e) + "\n\n")
-                        sleep(60)
-                        continue
+                        print "Adding source comment..."
+                        post.add_comment("[Link to source](" + permalink + ").")
+                        break
 
-                    except (praw.errors.APIException, Exception) as e:
+                    except APIException, e:
                         print e
-                        
+
                         if str(e) == "`that link has already been submitted` on field `url`":
                             trdBot.alreadyDone.add(postID)
                             break
 
                         else:
                             logging.debug(str(e) + "\n\n")
+                            sleep(60)
                             continue
+
+                    except (ClientException, Exception) as e:
+                        print e
+                        logging.debug(str(e) + "\n\n")
+                        continue
