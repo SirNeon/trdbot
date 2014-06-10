@@ -3,6 +3,7 @@ from sys import exit, stderr
 from time import sleep
 import praw
 from praw.errors import *
+from requests import HTTPError
 
 
 class trdbot(object):
@@ -13,23 +14,32 @@ class trdbot(object):
         Initialize the bot with some basic info.
         """
 
-        self.userAgent = "/r/MirrorNetwork xposting bot by /u/SirNeon"
+        self.userAgent = "/r/TrueRedditDrama xposting bot by /u/SirNeon"
 
         # list of subreddits to crawl
         self.subredditList = set([
-                    "SubredditDrama", "Drama",
+                    "SubredditDrama", "SubredditDramaDrama", 
+                    "Drama",
                 ])
 
         # subreddit flairs
         self.flairList = {
-                "SubredditDrama": "SRD", "Drama": "Drama", 
+                "SubredditDrama": "SRD", 
+                "SubredditDramaDrama": "SRDD", "Drama": "Drama", 
             }
+
+        # minimum karma threshold for each subreddit
+        # don't post submissions with less than this
+        self.karmaThreshold = {
+                "SubredditDrama": 10, "Drama": 5, 
+                "SubredditDramaDrama": 5,
+        }
 
         # list of threads already done
         self.alreadyDone = set()
 
         # post to this subreddit
-        self.post_to = "mirrornetworktest"
+        self.post_to = "trueredditdramatest"
 
         # scan no more than this number of threads
         self.scrapeLimit = 25
@@ -64,8 +74,7 @@ class trdbot(object):
         except AttributeError:
             raise Exception("Couldn't get submission attribute.")
 
-        # skip posts with less than +5 net karma
-        if postScore >= 5:
+        if postScore >= self.karmaThreshold[subName]:
             if(submission.is_self):
                 try:
                     postBody = submission.selftext
@@ -128,13 +137,28 @@ if __name__ == "__main__":
     username = ""
     password = ""
 
-    try:
-        trdBot.login(username, password)
+    for i in range(0, 3):
+        try:
+            trdBot.login(username, password)
+            break
 
-    except (InvalidUser, InvalidUserPass, RateLimitExceeded, NonExistentUser, APIException) as e:
-        print e
-        logging.debug("Failed to login. " + str(e) + "\n\n")
-        exit(1)
+        except (InvalidUser, InvalidUserPass, RateLimitExceeded, NonExistentUser, APIException) as e:
+            print e
+            logging.debug("Failed to login. " + str(e) + "\n\n")
+            exit(1)
+
+        except HTTPError, e:
+            print e
+            logging.debug(str(e) + "\n\n")
+
+            if i == 2:
+                print "Failed to login."
+                exit(1)
+
+            else:
+                # wait a minute and try again
+                sleep(60)
+                continue
 
     while True:
         # keep the list from getting too big
@@ -155,14 +179,13 @@ if __name__ == "__main__":
                 trdBot.subredditList.remove(subreddit)
                 continue
 
-            except APIException, e:
+            except HTTPError, e:
                 print e
                 logging.debug(str(e) + "\n\n")
-                # wait a minute and try again
                 sleep(60)
                 continue
 
-            except (ClientException, Exception) as e:
+            except (APIException, ClientException, Exception) as e:
                 print e
                 logging.debug(str(e) + "\n\n")
                 continue
@@ -182,13 +205,13 @@ if __name__ == "__main__":
                         print "Getting content from submission..."
                         result = trdBot.get_content(submission)
 
-                except APIException, e:
+                except HTTPError, e:
                     print e
                     logging.debug(str(e) + "\n\n")
                     sleep(60)
                     continue
 
-                except (ClientException, Exception) as e:
+                except (APIException, ClientException, Exception) as e:
                     print e
                     logging.debug(str(e) + "\n\n")
                     continue
@@ -234,19 +257,19 @@ if __name__ == "__main__":
                         post.add_comment("[Link to source](" + permalink + ").")
                         break
 
-                    except APIException, e:
+                    except HTTPError, e:
                         print e
+                        logging.debug(str(e) + "\n\n")
+                        sleep(60)
+                        continue
+
+                    except (APIException, ClientException, Exception) as e:
+                        print e
+                        logging.debug(str(e) + "\n\n")
 
                         if str(e) == "`that link has already been submitted` on field `url`":
                             trdBot.alreadyDone.add(postID)
                             break
-
+                        
                         else:
-                            logging.debug(str(e) + "\n\n")
-                            sleep(60)
                             continue
-
-                    except (ClientException, Exception) as e:
-                        print e
-                        logging.debug(str(e) + "\n\n")
-                        continue
