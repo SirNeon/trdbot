@@ -3,7 +3,7 @@ from sys import exit, stderr
 from time import sleep
 import praw
 from praw.errors import *
-from requests import HTTPError
+from urllib2 import HTTPError
 
 
 class trdbot(object):
@@ -27,13 +27,6 @@ class trdbot(object):
                 "SubredditDrama": "SRD", 
                 "SubredditDramaDrama": "SRDD", "Drama": "Drama", 
             }
-
-        # minimum karma threshold for each subreddit
-        # don't post submissions with less than this
-        self.karmaThreshold = {
-                "SubredditDrama": 10, "Drama": 5, 
-                "SubredditDramaDrama": 5,
-        }
 
         # list of threads already done
         self.alreadyDone = set()
@@ -74,7 +67,7 @@ class trdbot(object):
         except AttributeError:
             raise Exception("Couldn't get submission attribute.")
 
-        if postScore >= self.karmaThreshold[subName]:
+        if postScore >= 5:
             if(submission.is_self):
                 try:
                     postBody = submission.selftext
