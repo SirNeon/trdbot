@@ -39,7 +39,7 @@ class trdbot(object):
         self.alreadyDone = set()
 
         # post to this subreddit
-        self.post_to = "trueredditdramatest"
+        self.post_to = "TrueRedditDramaTest"
 
         # scan no more than this number of threads
         self.scrapeLimit = 50
@@ -135,7 +135,7 @@ def login(username, password):
             trdBot.login(username, password)
             break
 
-        except (InvalidUser, InvalidUserPass, RateLimitExceeded, NonExistentUser, APIException) as e:
+        except (InvalidUser, InvalidUserPass, RateLimitExceeded, APIException) as e:
             print e
             logging.debug("Failed to login. " + str(e) + "\n\n")
             exit(1)
@@ -268,7 +268,7 @@ def main():
             print "Scanning thread ({0} / {1})...".format(i + 1, trdBot.scrapeLimit)
 
             try:
-                postID = submission.id
+                postID = str(submission.id)
                 subreddit = str(submission.subreddit)
 
             except AttributeError:
@@ -318,7 +318,7 @@ def main():
                         else:
                             post = trdBot.submit_url(title, content)
 
-                            trdBot.alreadyDone.add(postID)
+                        trdBot.alreadyDone.add(postID)
 
                     try:
                         print "Setting flair..."
