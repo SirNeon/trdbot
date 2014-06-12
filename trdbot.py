@@ -280,6 +280,10 @@ def main():
                     print "Getting content from submission..."
                     result = trdBot.get_content(submission)
 
+                else:
+                    # needed to ease strain on CPU
+                    sleep(2)
+
             except HTTPError, e:
                 print e
                 logging.debug(str(e) + "\n\n")
@@ -319,6 +323,10 @@ def main():
                             post = trdBot.submit_url(title, content)
 
                         trdBot.alreadyDone.add(postID)
+
+                    else:
+                        # needed to ease strain on CPU
+                        sleep(2)
 
                     try:
                         print "Setting flair..."
