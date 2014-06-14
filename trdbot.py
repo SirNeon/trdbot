@@ -184,11 +184,17 @@ def check_subreddits(subredditList):
                     print e
                     logging.debug(str(subreddit) + ' ' + str(e) + "\n\n")
 
+                    # private subreddits return a 403 error
+                    if "403" in str(e):
+                        print "/r/{0} is private. Removing from list...".format(subreddit)
+                        subredditList.remove(subreddit)
+                        continue
+
                     # banned subreddits return a 404 error
                     if "404" in str(e):
                         print "/r/{0} probably banned. Removing from list...".format(subreddit)
                         trdBot.subredditList.remove(subreddit)
-                        raise skipThis
+                        continue
 
                     print "Waiting a minute to try again..."    
                     sleep(60)
@@ -197,7 +203,14 @@ def check_subreddits(subredditList):
                 except (APIException, ClientException, Exception) as e:
                     print e
                     logging.debug(str(e) + "\n\n")
-                    raise skipThis
+
+                    if str(e) == "timed out":
+                        print "Waiting to try again..."
+                        sleep(60)
+                        continue
+
+                    else:
+                        raise skipThis
 
             break
 
@@ -262,6 +275,11 @@ def main():
         except (APIException, ClientException, Exception) as e:
             print e
             logging.debug(str(e) + "\n\n")
+
+            if str(e) == "timed out":
+                print "Waiting to try again..."
+                sleep(60)
+
             continue
 
         for i, submission in enumerate(submissions):
@@ -293,6 +311,11 @@ def main():
             except (APIException, ClientException, Exception) as e:
                 print e
                 logging.debug(str(e) + "\n\n")
+
+                if str(e) == "timed out":
+                    print "Waiting to try again..."
+                    sleep(60)
+                        
                 continue
 
             try:
@@ -342,6 +365,11 @@ def main():
                     except (APIException, ModeratorRequired) as e:
                         print e
                         logging.debug("Failed to set flair. " + str(e) + '\n' + str(post.permalink) + "\n\n")
+
+                        if str(e) == "timed out":
+                            print "Waiting to try again..."
+                            sleep(60)
+                        
                         continue
 
                     try:
@@ -359,6 +387,11 @@ def main():
                     except (APIException, ClientException, Exception) as e:
                         print e
                         logging.debug(str(e) + "\n\n")
+
+                        if str(e) == "timed out":
+                            print "Waiting to try again..."
+                            sleep(60)
+                        
                         continue
 
                 except HTTPError, e:
@@ -374,9 +407,12 @@ def main():
                     if str(e) == "`that link has already been submitted` on field `url`":
                         trdBot.alreadyDone.add(postID)
                         break
-                        
-                    else:
-                        continue
+
+                    if str(e) == "timed out":
+                        print "Waiting to try again..."
+                        sleep(60)
+                    
+                    continue
 
 
 if __name__ == "__main__":
