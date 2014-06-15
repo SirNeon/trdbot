@@ -1,4 +1,5 @@
 import logging
+import optparse
 from sys import exit, stderr
 from time import sleep
 import praw
@@ -15,6 +16,9 @@ class trdbot(object):
         """
 
         self.userAgent = "/r/TrueRedditDrama xposting bot by /u/SirNeon"
+
+        # add terminal output
+        self.verbose = False
 
         # list of subreddits to crawl
         self.subredditList = set([
@@ -49,6 +53,21 @@ class trdbot(object):
 
         # scan no more than this number of threads
         self.scrapeLimit = 50
+
+
+    def add_msg(self, msg=None, newline=False):
+        """
+        Simple function to make terminal output optional. Feed
+        it the message to print out. Can alsotell it to print a 
+        newline if you want to.
+        """
+
+        if(self.verbose):
+            if msg is not None:
+                print msg
+
+            if(newline):
+                print '\n'
 
 
     def login(self, username, password):
@@ -100,7 +119,7 @@ class trdbot(object):
             return (title, url, permalink)
 
         else:
-            print "Thread karma beneath necessary threshold."
+            self.add_msg("Thread karma beneath necessary threshold.")
             return None
 
 
@@ -142,12 +161,12 @@ def login(username, password):
             break
 
         except (InvalidUser, InvalidUserPass, RateLimitExceeded, APIException) as e:
-            print e
+            trdBot.add_msg(e)
             logging.debug("Failed to login. " + str(e) + "\n\n")
             exit(1)
 
         except HTTPError, e:
-            print e
+            trdBot.add_msg(e)
             logging.debug(str(e) + "\n\n")
 
             if i == 2:
@@ -156,7 +175,7 @@ def login(username, password):
 
             else:
                 # wait a minute and try again
-                print "Waiting to try again..."
+                trdBot.add_msg("Waiting to try again...")
                 sleep(60)
                 continue
 
@@ -181,13 +200,13 @@ def check_subreddits(subredditList):
                         "".join(submission.title)
 
                 except (InvalidSubreddit, RedirectException) as e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug("Invalid subreddit. Removing from list." + str(e) + "\n\n")
                     trdBot.subredditList.remove(subreddit)
                     raise skipThis
 
                 except HTTPError, e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(subreddit) + ' ' + str(e) + "\n\n")
 
                     # private subreddits return a 403 error
@@ -202,16 +221,16 @@ def check_subreddits(subredditList):
                         trdBot.subredditList.remove(subreddit)
                         continue
 
-                    print "Waiting a minute to try again..."    
+                    trdBot.add_msg("Waiting a minute to try again...")
                     sleep(60)
                     raise skipThis
 
                 except (APIException, ClientException, Exception) as e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(e) + "\n\n")
 
                     if str(e) == "timed out":
-                        print "Waiting to try again..."
+                        trdBot.add_msg("Waiting to try again...")
                         sleep(60)
                         continue
 
@@ -248,10 +267,49 @@ def check_list():
 
 
 def main():
+    # login credentials
+    # these can be overwritten with the commandline
     username = ""
     password = ""
 
+    # optional commandline arguments and features
+    parser = optparse.OptionParser("python trdbot.py [options]")
+    parser.add_option("-p", "--postHere", dest="postHere", type="string", help="Set the subreddit to post the results to. Defaults to /r/TrueRedditDramaTest.")
+    parser.add_option("-v", "--verbosity", dest="verbosity", type="string", help="Make the program more verbose with status updates and error printing. Off by default.")
+    parser.add_option("-u", "--userCreds", dest="userCreds", type="string", help="Give the bot the username and password to an account. Separate them with commas.")
+    (options, args) = parser.parse_args()
+
+    if options.verbosity is not None:
+        if options.verbosity.lower() == "on":
+            trdBot.verbose = True
+
+        elif options.verbosity.lower() == "off":
+            trdBot.verbose = False
+
+        else:
+            print "Invalid argument for verbosity. Use either \"on\" or \"off\"."
+            exit(1)
+
+    if options.userCreds is not None:
+        credentials = options.userCreds.split(',')
+        username = credentials[0]
+        password = credentials[1]
+
     login(username, password)
+
+    # This requires the client attribute, which is created
+    # in the login function
+    if options.postHere is not None:
+        checkSub = [options.postHere]
+
+        check_subreddits(checkSub)
+
+        if checkSub == []:
+            print "Subreddit failed check. Can't post there."
+            exit(1)
+
+        else:
+            trdBot.post_to = options.postHere
 
     check_subreddits(trdBot.subredditList)
 
@@ -272,14 +330,14 @@ def main():
             submissions = trdBot.client.get_subreddit(multireddit).get_new(limit=trdBot.scrapeLimit)
 
         except (APIException, ClientException, HTTPError, Exception) as e:
-            print e
+            trdBot.add_msg(e)
             logging.debug(str(e) + "\n\n")
-            print "Waiting to try again..."
+            trdBot.add_msg("Waiting to try again...")
             sleep(60)
             continue
 
         for i, submission in enumerate(submissions):
-            print "Scanning thread ({0} / {1})...".format(i + 1, trdBot.scrapeLimit)
+            trdBot.add_msg("Scanning thread ({0} / {1})...".format(i + 1, trdBot.scrapeLimit))
 
             try:
                 postID = str(submission.id)
@@ -291,7 +349,7 @@ def main():
 
             try:
                 if postID not in trdBot.alreadyDone:
-                    print "Getting content from submission..."
+                    trdBot.add_msg("Getting content from submission...")
                     result = trdBot.get_content(submission)
 
                 else:
@@ -299,17 +357,17 @@ def main():
                     sleep(2)
 
             except HTTPError, e:
-                print e
+                trdBot.add_msg(e)
                 logging.debug(str(e) + "\n\n")
                 sleep(60)
                 continue
 
             except (APIException, ClientException, Exception) as e:
-                print e
+                trdBot.add_msg(e)
                 logging.debug(str(e) + "\n\n")
 
                 if str(e) == "timed out":
-                    print "Waiting to try again..."
+                    trdBot.add_msg("Waiting to try again...")
                     sleep(60)
                         
                 continue
@@ -326,7 +384,7 @@ def main():
                     continue
 
             except Exception, e:
-                print e
+                trdBot.add_msg(e)
                 logging.debug(str(e) + "\n\n")
                 continue
 
@@ -359,13 +417,13 @@ def main():
                         break
 
                 except HTTPError, e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(e) + "\n\n")
                     sleep(60)
                     continue
 
                 except (APIException, ClientException, Exception) as e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(e) + "\n\n")
 
                     if str(e) == "`that link has already been submitted` on field `url`":
@@ -373,7 +431,7 @@ def main():
                         break
 
                     if str(e) == "timed out":
-                        print "Waiting to try again..."
+                        trdBot.add_msg("Waiting to try again...")
                         sleep(60)
                     
                     continue
@@ -387,24 +445,24 @@ def main():
                         break
 
                 except HTTPError, e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(e) + "\n\n")
-                    print "Waiting to try again..."
+                    trdBot.add_msg("Waiting to try again...")
                     sleep(60)
                     continue
 
                 except ModeratorRequired, e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug("Failed to set flair. " + str(e) + '\n' + str(post.permalink) + "\n\n")
                     break
 
 
                 except (APIException, ClientException, Exception) as e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(e) + "\n\n")
 
                     if str(e) == "timed out":
-                        print "Waiting to try again..."
+                        trdBot.add_msg("Waiting to try again...")
                         sleep(60)
                         continue
                         
@@ -417,18 +475,18 @@ def main():
                         break
 
                 except HTTPError, e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(e) + "\n\n")
-                    print "Waiting a minute to try again..."
+                    trdBot.add_msg("Waiting to try again...")
                     sleep(60)
                     continue
 
                 except (APIException, ClientException, Exception) as e:
-                    print e
+                    trdBot.add_msg(e)
                     logging.debug(str(e) + "\n\n")
 
                     if str(e) == "timed out":
-                        print "Waiting to try again..."
+                        trdBot.add_msg("Waiting to try again...")
                         sleep(60)
                         
                     continue
