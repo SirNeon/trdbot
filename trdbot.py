@@ -38,6 +38,12 @@ class trdbot(object):
         # list of threads already done
         self.alreadyDone = set()
 
+        # list of flaired threads
+        self.alreadyFlaired = set()
+
+        # list of threads with the source linked
+        self.alreadyCommented = set()
+
         # post to this subreddit
         self.post_to = "TrueRedditDramaTest"
 
@@ -67,9 +73,9 @@ class trdbot(object):
 
         try:
             subName = str(submission.subreddit)
-            title = submission.title
-            postScore = submission.score
-            permalink = submission.permalink.replace("www.reddit.com", "np.reddit.com")
+            title = str(submission.title)
+            postScore = int(submission.score)
+            permalink = str(submission.permalink.replace("www.reddit.com", "np.reddit.com"))
 
         except AttributeError:
             raise Exception("Couldn't get submission attribute.")
@@ -79,7 +85,7 @@ class trdbot(object):
         if postScore >= minKarma:
             if(submission.is_self):
                 try:
-                    postBody = submission.selftext
+                    postBody = str(submission.selftext)
 
                 except AttributeError:
                     raise Exception("Couldn't get submission text. Skipping...")
@@ -89,7 +95,7 @@ class trdbot(object):
                 return (title, text, permalink)
 
             else:
-                url = submission.url.replace("www.reddit.com", "np.reddit.com")
+                url = str(submission.url.replace("www.reddit.com", "np.reddit.com"))
 
             return (title, url, permalink)
 
@@ -265,21 +271,11 @@ def main():
             print "Scanning for submissions..."
             submissions = trdBot.client.get_subreddit(multireddit).get_new(limit=trdBot.scrapeLimit)
 
-        except HTTPError, e:
+        except (APIException, ClientException, HTTPError, Exception) as e:
             print e
             logging.debug(str(e) + "\n\n")
             print "Waiting to try again..."
             sleep(60)
-            continue
-
-        except (APIException, ClientException, Exception) as e:
-            print e
-            logging.debug(str(e) + "\n\n")
-
-            if str(e) == "timed out":
-                print "Waiting to try again..."
-                sleep(60)
-
             continue
 
         for i, submission in enumerate(submissions):
@@ -339,6 +335,9 @@ def main():
                 try:
                     if postID not in trdBot.alreadyDone:
                         print "Submitting post..."
+                        
+                        content = content.replace("www.np.reddit.com", "np.reddit.com")
+
                         if(submission.is_self):
                             post = trdBot.submit_selfpost(title, content)
 
@@ -352,47 +351,12 @@ def main():
                         sleep(2)
 
                     try:
-                        print "Setting flair..."
-                        trdBot.client.set_flair(trdBot.post_to, post, flair_text=trdBot.flairList[subreddit])
-
-                    except HTTPError, e:
-                        print e
-                        logging.debug(str(e) + "\n\n")
-                        print "Waiting to try again..."
-                        sleep(60)
-                        continue
-
-                    except (APIException, ModeratorRequired) as e:
-                        print e
-                        logging.debug("Failed to set flair. " + str(e) + '\n' + str(post.permalink) + "\n\n")
-
-                        if str(e) == "timed out":
-                            print "Waiting to try again..."
-                            sleep(60)
-                        
-                        continue
-
-                    try:
-                        print "Adding source comment..."
-                        post.add_comment("[Link to source](" + permalink + ").")
+                        submittedID = str(post.id)
                         break
 
-                    except HTTPError, e:
-                        print e
-                        logging.debug(str(e) + "\n\n")
-                        print "Waiting a minute to try again..."
-                        sleep(60)
-                        continue
-
-                    except (APIException, ClientException, Exception) as e:
-                        print e
-                        logging.debug(str(e) + "\n\n")
-
-                        if str(e) == "timed out":
-                            print "Waiting to try again..."
-                            sleep(60)
-                        
-                        continue
+                    except AttributeError:
+                        print "Could not get the ID of the submitted thread."
+                        break
 
                 except HTTPError, e:
                     print e
@@ -412,6 +376,61 @@ def main():
                         print "Waiting to try again..."
                         sleep(60)
                     
+                    continue
+
+            for i in range(0, 3):
+                try:
+                    if submittedID not in trdBot.alreadyFlaired:
+                        print "Setting flair..."
+                        trdBot.client.set_flair(trdBot.post_to, post, flair_text=trdBot.flairList[subreddit])
+                        trdBot.alreadyFlaired.add(submittedID)
+                        break
+
+                except HTTPError, e:
+                    print e
+                    logging.debug(str(e) + "\n\n")
+                    print "Waiting to try again..."
+                    sleep(60)
+                    continue
+
+                except ModeratorRequired, e:
+                    print e
+                    logging.debug("Failed to set flair. " + str(e) + '\n' + str(post.permalink) + "\n\n")
+                    break
+
+
+                except (APIException, ClientException, Exception) as e:
+                    print e
+                    logging.debug(str(e) + "\n\n")
+
+                    if str(e) == "timed out":
+                        print "Waiting to try again..."
+                        sleep(60)
+                        continue
+                        
+            for i in range(0, 3):
+                try:
+                    if submittedID not in trdBot.alreadyCommented:
+                        print "Adding source comment..."
+                        post.add_comment("[Link to source](" + permalink + ").")
+                        trdBot.alreadyCommented.add(submittedID)
+                        break
+
+                except HTTPError, e:
+                    print e
+                    logging.debug(str(e) + "\n\n")
+                    print "Waiting a minute to try again..."
+                    sleep(60)
+                    continue
+
+                except (APIException, ClientException, Exception) as e:
+                    print e
+                    logging.debug(str(e) + "\n\n")
+
+                    if str(e) == "timed out":
+                        print "Waiting to try again..."
+                        sleep(60)
+                        
                     continue
 
 
