@@ -35,7 +35,7 @@ class trdbot(object):
         # minimum karma threshold for each subreddit
         # don't post submissions with less than this
         self.karmaThreshold = {
-                "SubredditDrama": 10, "Drama": 5, 
+                "SubredditDrama": 30, "Drama": 5, 
                 "SubredditDramaDrama": 5,
         }
 
@@ -109,11 +109,19 @@ class trdbot(object):
                 except AttributeError:
                     raise Exception("Couldn't get submission text. Skipping...")
 
+                if "reddit.com" not in postBody:
+                    self.add_msg("No Reddit links detected in post. Skipping...")
+                    return None
+
                 text = postBody.replace("www.reddit.com", "np.reddit.com")
 
                 return (title, text, permalink)
 
             else:
+                if "reddit.com" not in str(submission.url):
+                    self.add_msg("Not a Reddit link. Skipping...")
+                    return None
+
                 url = str(submission.url.replace("www.reddit.com", "np.reddit.com"))
 
             return (title, url, permalink)
@@ -267,14 +275,12 @@ def check_list():
 
 
 def main():
-    # login credentials
-    # these can be overwritten with the commandline
     username = ""
     password = ""
 
     # optional commandline arguments and features
     parser = optparse.OptionParser("python trdbot.py [options]")
-    parser.add_option("-p", "--postHere", dest="postHere", type="string", help="Set the subreddit to post the results to. Defaults to /r/TrueRedditDramaTest.")
+    parser.add_option("-p", "--postHere", dest="postHere", type="string", help="Set the subreddit to post the results to.")
     parser.add_option("-v", "--verbosity", dest="verbosity", type="string", help="Make the program more verbose with status updates and error printing. Off by default.")
     parser.add_option("-u", "--userCreds", dest="userCreds", type="string", help="Give the bot the username and password to an account. Separate them with commas.")
     (options, args) = parser.parse_args()
@@ -327,7 +333,7 @@ def main():
 
         try:
             print "Scanning for submissions..."
-            submissions = trdBot.client.get_subreddit(multireddit).get_new(limit=trdBot.scrapeLimit)
+            submissions = trdBot.client.get_subreddit(multireddit).get_hot(limit=trdBot.scrapeLimit)
 
         except (APIException, ClientException, HTTPError, Exception) as e:
             trdBot.add_msg(e)
