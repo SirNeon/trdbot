@@ -92,6 +92,7 @@ class trdbot(object):
 
         try:
             subName = str(submission.subreddit)
+            postID = str(submission.id)
             title = str(submission.title)
             postScore = int(submission.score)
             permalink = str(submission.permalink.replace("www.reddit.com", "np.reddit.com"))
@@ -111,6 +112,7 @@ class trdbot(object):
 
                 if "reddit.com" not in postBody:
                     self.add_msg("No Reddit links detected in post. Skipping...")
+                    self.alreadyDone.add(postID)
                     return None
 
                 text = postBody.replace("www.reddit.com", "np.reddit.com")
@@ -120,6 +122,7 @@ class trdbot(object):
             else:
                 if "reddit.com" not in str(submission.url):
                     self.add_msg("Not a Reddit link. Skipping...")
+                    self.alreadyDone.add(postID)
                     return None
 
                 url = str(submission.url.replace("www.reddit.com", "np.reddit.com"))
