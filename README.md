@@ -19,6 +19,6 @@ Linux users may need to use:
     sudo pip install -r requirements.txt
     
 ###How To Run The Bot
-Just enter the command:
+Just enter the directory where the bot's files are stored and run the command:
 
     python trdbot.py
