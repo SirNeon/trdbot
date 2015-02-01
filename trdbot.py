@@ -1,520 +1,206 @@
-import logging
-import optparse
-from sys import exit, stderr
+from __future__ import print_function
+import os
+import re
+from socket import timeout
+import sqlite3 as db
+from sys import exit
 from time import sleep
 import praw
 from praw.errors import *
 from requests.exceptions import HTTPError
+from simpleconfigparser import simpleconfigparser
 
 
-class trdbot(object):
+config = simpleconfigparser()
 
+if not(os.path.isfile("settings.cfg")):
+    print("Couldn't find settings.cfg. Exiting.")
+    exit(1)
+else:
+    config.read("settings.cfg")
 
-    def __init__(self):
-        """
-        Initialize the bot with some basic info.
-        """
+con = db.connect("alreadydone.db")
+cur = con.cursor()
 
-        self.userAgent = "/r/TrueRedditDrama xposting bot by /u/SirNeon"
+cur.execute("CREATE TABLE IF NOT EXISTS submissions(permalink TEXT)")
 
-        # add terminal output
-        self.verbose = False
+client = praw.Reddit(user_agent="/r/TrueRedditDrama xposting bot by /u/SirNeon")
 
-        # list of subreddits to crawl
-        self.subredditList = set([
-                    "SubredditDrama", "SubredditDramaDrama", 
-                    "Drama",
-                ])
+USERNAME = str(config.login.username)
+PASSWORD = str(config.login.password)
+SUBREDDIT_LIST = list(set(str(config.main.subreddits).split(',')))
 
-        # subreddit flairs
-        self.flairList = {
-                "SubredditDrama": "SRD", 
-                "SubredditDramaDrama": "SRDD", "Drama": "Drama", 
-            }
+SRD_MINIMUM_KARMA = int(config.main.srd_minimum_karma)
+SRDD_MINIMUM_KARMA = int(config.main.srdd_minimum_karma)
+DRAMA_MINIMUM_KARMA = int(config.main.drama_minimum_karma)
+MINIMUM_KARMA = {"Drama": DRAMA_MINIMUM_KARMA, "SubredditDrama": SRD_MINIMUM_KARMA,
+                 "SubredditDramaDrama": SRDD_MINIMUM_KARMA}
 
-        # minimum karma threshold for each subreddit
-        # don't post submissions with less than this
-        self.karmaThreshold = {
-                "SubredditDrama": 30, "Drama": 5, 
-                "SubredditDramaDrama": 5,
-        }
-
-        # list of threads already done
-        self.alreadyDone = set()
-
-        # list of flaired threads
-        self.alreadyFlaired = set()
-
-        # list of threads with the source linked
-        self.alreadyCommented = set()
-
-        # post to this subreddit
-        self.post_to = "TrueRedditDramaTest"
-
-        # scan no more than this number of threads
-        self.scrapeLimit = 50
-
-
-    def add_msg(self, msg=None, newline=False):
-        """
-        Simple function to make terminal output optional. Feed
-        it the message to print out. Can alsotell it to print a 
-        newline if you want to.
-        """
-
-        if(self.verbose):
-            if msg is not None:
-                print msg
-
-            if(newline):
-                print '\n'
-
-
-    def login(self, username, password):
-        """
-        Login to the bot's Reddit account. Give it the username
-        and the password.
-        """
-
-        self.client = praw.Reddit(user_agent=self.userAgent)
-        print "Logging in as {0}...".format(username)
-
-        self.client.login(username, password)
-        print "Login was successful."
-
-
-    def get_content(self, submission):
-        """
-        Gets data from the desired submission. Feed it the 
-        submission. It returns a tuple containing the title,
-        the post content, and the link to the source.
-        """
-
-        try:
-            subName = str(submission.subreddit)
-            postID = str(submission.id)
-            title = str(submission.title)
-            postScore = int(submission.score)
-            permalink = str(submission.permalink.replace("www.reddit.com", "np.reddit.com"))
-
-        except AttributeError:
-            raise Exception("Couldn't get submission attribute.")
-
-        minKarma = self.karmaThreshold[subName]
-
-        if postScore >= minKarma:
-            if(submission.is_self):
-                try:
-                    postBody = str(submission.selftext)
-
-                except AttributeError:
-                    raise Exception("Couldn't get submission text. Skipping...")
-
-                if "reddit.com" not in postBody:
-                    self.add_msg("No Reddit links detected in post. Skipping...")
-                    self.alreadyDone.add(postID)
-                    return None
-
-                text = postBody.replace("www.reddit.com", "np.reddit.com")
-
-                return (title, text, permalink)
-
-            else:
-                if "reddit.com" not in str(submission.url):
-                    self.add_msg("Not a Reddit link. Skipping...")
-                    self.alreadyDone.add(postID)
-                    return None
-
-                url = str(submission.url.replace("www.reddit.com", "np.reddit.com"))
-
-            return (title, url, permalink)
-
-        else:
-            self.add_msg("Thread karma beneath necessary threshold.")
-            return None
-
-
-    def submit_url(self, title, url):
-        """
-        Submits a link post to Reddit. Feed it the post title 
-        and the url. It returns the submission object.
-        """
-
-        mySubreddit = self.client.get_subreddit(self.post_to)
-
-        return mySubreddit.submit(title=title, url=url)
-
-
-    def submit_selfpost(self, title, text):
-        """
-        Submits the self post to reddit. Feed it the post 
-        title and post content. It returns the submission object.
-        """
-
-        mySubreddit = self.client.get_subreddit(self.post_to)
-
-        return mySubreddit.submit(title=title, text=text)
-
-
-class skipThis(Exception):
-    pass
+REDDIT_URL_PATTERN = re.compile("https?:\/\/[\w.]+reddit\.com\/r\/[\w\d_]+\/[\w\d.-_/]+")
+POST_TO = str(config.main.post_to)
+SUBREDDIT_FLAIR = {"SubredditDrama": "SRD", "SubredditDramaDrama": "SRDD", "Drama": "Drama"}
 
 
 def login(username, password):
-    """
-    Tell the bot to login to Reddit. Feed it the username and
-    password for the bot's Reddit account.
-    """
-
-    for i in range(0, 3):
+    print("Logging in as {}...".format(username))
+    while True:
         try:
-            trdBot.login(username, password)
+            client.login(username, password)
             break
-
-        except (InvalidUser, InvalidUserPass, RateLimitExceeded, APIException) as e:
-            trdBot.add_msg(e)
-            logging.debug("Failed to login. " + str(e) + "\n\n")
+        except (HTTPError, timeout) as e:
+            continue
+        except (InvalidUser, InvalidUserPass) as e:
+            print(e)
             exit(1)
 
-        except HTTPError, e:
-            trdBot.add_msg(e)
-            logging.debug(str(e) + "\n\n")
 
-            if i == 2:
-                print "Failed to login."
-                exit(1)
-
-            else:
-                # wait a minute and try again
-                trdBot.add_msg("Waiting to try again...")
-                sleep(60)
-                continue
-
-
-def check_subreddits(subredditList):
-    """
-    Checks on the listed subreddits to make sure that they are 
-    valid subreddits and that there's no typos and whatnot. This 
-    function removes the bad subreddits from the list so the bot 
-    can carry on with its task. Feed it the list of subreddits.
-    """
-
-    for i in range(0, 3):
+def get_submissions(multireddit):
+    while True:
         try:
-            for subreddit in subredditList:
-                print "Verifying /r/{0}...".format(subreddit)
-
-                try:
-                    # make sure the subreddit is valid
-                    testSubmission = trdBot.client.get_subreddit(subreddit).get_new(limit=1)
-                    for submission in testSubmission:
-                        "".join(submission.title)
-
-                except (InvalidSubreddit, RedirectException) as e:
-                    trdBot.add_msg(e)
-                    logging.debug("Invalid subreddit. Removing from list." + str(e) + "\n\n")
-                    trdBot.subredditList.remove(subreddit)
-                    raise skipThis
-
-                except HTTPError, e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(subreddit) + ' ' + str(e) + "\n\n")
-
-                    # private subreddits return a 403 error
-                    if "403" in str(e):
-                        print "/r/{0} is private. Removing from list...".format(subreddit)
-                        subredditList.remove(subreddit)
-                        continue
-
-                    # banned subreddits return a 404 error
-                    if "404" in str(e):
-                        print "/r/{0} probably banned. Removing from list...".format(subreddit)
-                        trdBot.subredditList.remove(subreddit)
-                        continue
-
-                    trdBot.add_msg("Waiting a minute to try again...")
-                    sleep(60)
-                    raise skipThis
-
-                except (APIException, ClientException, Exception) as e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(e) + "\n\n")
-
-                    if str(e) == "timed out":
-                        trdBot.add_msg("Waiting to try again...")
-                        sleep(60)
-                        continue
-
-                    else:
-                        raise skipThis
-
+            submissions = client.get_subreddit(multireddit).get_new(limit=50)
             break
+        except (HTTPError, timeout) as e:
+            continue
 
-        except skipThis:
-            if i == 2:
-                print "Couldn't verify the validity of the listed subreddits. Quitting..."
-                exit(1)
-
-            else:
-                continue
-
-    print "Subreddit verification completed."
+    return submissions
 
 
-def check_list():
-    """
-    This bot is intended to run 24/7. The list of finished 
-    submissions could get quite large depending the activity 
-    of the subreddits that it scans. This function trims the 
-    list every so often so that it doesn't eat too much resources.
-    """
-    # keep the list from getting too big
-    if len(trdBot.alreadyDone) >= 1000:
-        print "Trimming the list of finished submissions..."
-        
-        for i, element in enumerate(trdBot.alreadyDone):
-            if i < 900:
-                trdBot.alreadyDone.remove(element)
+def remove_noparticipation(content):
+    if "np.reddit.com" in content:
+        content = content.replace("np.reddit.com", "www.reddit.com")
+
+    if "www.np.reddit.com" in content:
+        content = content.replace("www.np.reddit.com", "www.reddit.com")
+
+    return content
+
+
+def get_drama(submission):
+    try:
+        subreddit = str(submission.subreddit)
+        karma = int(submission.score)
+        title = str(submission.title)
+        permalink = str(submission.permalink)
+    except AttributeError:
+        return None
+
+    cur.execute("SELECT * FROM submissions WHERE permalink=?", (permalink,))
+
+    if cur.fetchone() is not None:
+        return None
+
+    if(karma >= MINIMUM_KARMA[subreddit]):
+        cur.execute("INSERT INTO submissions VALUES(?)", (permalink,))
+
+        if(submission.is_self):
+            try:
+                text = str(submission.selftext)
+            except AttributeError:
+                return None
+
+            reddit_urls = REDDIT_URL_PATTERN.findall(text)
+
+            if reddit_urls == []:
+                return None
+
+            text = remove_noparticipation(text)
+
+            return ("self", subreddit, title, text, permalink)
+
+        else:
+            try:
+                url = str(submission.url)
+            except AttributeError:
+                return None
+
+            reddit_url = REDDIT_URL_PATTERN.match(text)
+
+            if reddit_url is None:
+                return None
+
+            url = remove_noparticipation(url)
+
+            return ("link", subreddit, title, url, permalink)
+
+    else:
+        return None
+
+
+def submit_linkpost(title, url):
+    while True:
+        try:
+            subreddit = client.get_subreddit(POST_TO)
+            post = subreddit.submit(title=title, url=url)
+            break
+        except (HTTPError, timeout):
+            continue
+
+    return post
+
+
+def submit_selfpost(title, text):
+    while True:
+        try:
+            subreddit = client.get_subreddit(POST_TO)
+            post = subreddit.submit(title=title, text=text)
+            break
+        except (HTTPError, timeout):
+            continue
+
+    return post
+
+
+def set_flair(subreddit, submission):
+    while True:
+        try:
+            submission.set_flair(POST_TO, submission, flair_text=SUBREDDIT_FLAIR[subreddit])
+            break
+        except (HTTPError, timeout):
+            continue
+
+
+def link_source(submission, permalink):
+    while True:
+        try:
+            submission.add_comment("[source]({}).".format(permalink))
+            break
+        except (HTTPError, timeout):
+            continue
 
 
 def main():
-    username = ""
-    password = ""
-
-    # optional commandline arguments and features
-    parser = optparse.OptionParser("python trdbot.py [options]")
-    parser.add_option("-p", "--postHere", dest="postHere", type="string", help="Set the subreddit to post the results to.")
-    parser.add_option("-v", "--verbosity", dest="verbosity", type="string", help="Make the program more verbose with status updates and error printing. Off by default.")
-    parser.add_option("-u", "--userCreds", dest="userCreds", type="string", help="Give the bot the username and password to an account. Separate them with commas.")
-    (options, args) = parser.parse_args()
-
-    if options.verbosity is not None:
-        if options.verbosity.lower() == "on":
-            trdBot.verbose = True
-
-        elif options.verbosity.lower() == "off":
-            trdBot.verbose = False
-
-        else:
-            print "Invalid argument for verbosity. Use either \"on\" or \"off\"."
-            exit(1)
-
-    if options.userCreds is not None:
-        credentials = options.userCreds.split(',')
-        username = credentials[0]
-        password = credentials[1]
-
-    login(username, password)
-
-    # This requires the client attribute, which is created
-    # in the login function
-    if options.postHere is not None:
-        checkSub = [options.postHere]
-
-        check_subreddits(checkSub)
-
-        if checkSub == []:
-            print "Subreddit failed check. Can't post there."
-            exit(1)
-
-        else:
-            trdBot.post_to = options.postHere
-
-    check_subreddits(trdBot.subredditList)
-
-    print "Building multireddit."
-
     multireddit = ""
+    for subreddit in SUBREDDIT_LIST:
+        multireddit += subreddit + '+'
 
-    for subreddit in trdBot.subredditList:
-        multireddit += "".join(subreddit + '+')
-
-    print "Multireddit built."
+    multreddit = multireddit.strip('+')
 
     while True:
-        check_list()
+        login(USERNAME, PASSWORD)
+        submissions = get_submissions(multireddit)
+        for submission in submissions:
+            post = get_drama(submissions)
 
-        try:
-            print "Scanning for submissions..."
-            submissions = trdBot.client.get_subreddit(multireddit).get_hot(limit=trdBot.scrapeLimit)
-
-        except (APIException, ClientException, HTTPError, Exception) as e:
-            trdBot.add_msg(e)
-            logging.debug(str(e) + "\n\n")
-            trdBot.add_msg("Waiting to try again...")
-            sleep(60)
-            continue
-
-        for i, submission in enumerate(submissions):
-            trdBot.add_msg("Scanning thread ({0} / {1})...".format(i + 1, trdBot.scrapeLimit))
-
-            try:
-                postID = str(submission.id)
-                subreddit = str(submission.subreddit)
-
-            except AttributeError:
-                print "Failed to get submission ID. Skipping..."
+            if post is None:
                 continue
 
-            try:
-                if postID not in trdBot.alreadyDone:
-                    trdBot.add_msg("Getting content from submission...")
-                    result = trdBot.get_content(submission)
+            submission_type = post[0]
+            submission_source_subreddit = post[1]
+            submission_title = post[2]
+            submission_content = post[3]
+            submission_source = post[4]
 
-                else:
-                    # needed to ease strain on CPU
-                    sleep(2)
+            if(submission_type == "link"):
+                post = submit_linkpost(submission_title, submission_content)
 
-            except HTTPError, e:
-                trdBot.add_msg(e)
-                logging.debug(str(e) + "\n\n")
-                sleep(60)
-                continue
+            if(submission_type == "self"):
+                post = submit_selfpost(submission_title, submission_content)
 
-            except (APIException, ClientException, Exception) as e:
-                trdBot.add_msg(e)
-                logging.debug(str(e) + "\n\n")
+            set_flair(submission_source_subreddit, post)
+            link_source(post, submission_source)
 
-                if str(e) == "timed out":
-                    trdBot.add_msg("Waiting to try again...")
-                    sleep(60)
-                        
-                continue
-
-            try:
-                if result != None:
-                    # concatenate elements from the 
-                    # tuple to strings for submission
-                    title = "".join(str(result[0]))
-                    content = "".join(str(result[1]))
-                    permalink = "".join(str(result[2]))
-
-                else:
-                    continue
-
-            except Exception, e:
-                trdBot.add_msg(e)
-                logging.debug(str(e) + "\n\n")
-                continue
-
-            # try to submit the post 3 times before skipping
-            for i in range(0, 3):
-                try:
-                    if postID not in trdBot.alreadyDone:
-                        print "Submitting post..."
-                        
-                        content = content.replace("www.np.reddit.com", "np.reddit.com")
-
-                        if(submission.is_self):
-                            post = trdBot.submit_selfpost(title, content)
-
-                        else:
-                            post = trdBot.submit_url(title, content)
-
-                        trdBot.alreadyDone.add(postID)
-
-                    else:
-                        # needed to ease strain on CPU
-                        sleep(2)
-
-                    try:
-                        submittedID = str(post.id)
-                        break
-
-                    except AttributeError:
-                        print "Could not get the ID of the submitted thread."
-                        break
-
-                except HTTPError, e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(e) + "\n\n")
-                    sleep(60)
-                    continue
-
-                except (APIException, ClientException, Exception) as e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(e) + "\n\n")
-
-                    if str(e) == "`that link has already been submitted` on field `url`":
-                        trdBot.alreadyDone.add(postID)
-                        break
-
-                    if str(e) == "timed out":
-                        trdBot.add_msg("Waiting to try again...")
-                        sleep(60)
-                    
-                    continue
-
-            for i in range(0, 3):
-                try:
-                    if submittedID not in trdBot.alreadyFlaired:
-                        print "Setting flair..."
-                        trdBot.client.set_flair(trdBot.post_to, post, flair_text=trdBot.flairList[subreddit])
-                        trdBot.alreadyFlaired.add(submittedID)
-                        break
-
-                except HTTPError, e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(e) + "\n\n")
-                    trdBot.add_msg("Waiting to try again...")
-                    sleep(60)
-                    continue
-
-                except ModeratorRequired, e:
-                    trdBot.add_msg(e)
-                    logging.debug("Failed to set flair. " + str(e) + '\n' + str(post.permalink) + "\n\n")
-                    break
-
-
-                except (APIException, ClientException, Exception) as e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(e) + "\n\n")
-
-                    if str(e) == "timed out":
-                        trdBot.add_msg("Waiting to try again...")
-                        sleep(60)
-                        continue
-                        
-            for i in range(0, 3):
-                try:
-                    if submittedID not in trdBot.alreadyCommented:
-                        print "Adding source comment..."
-                        post.add_comment("[Link to source](" + permalink + ").")
-                        trdBot.alreadyCommented.add(submittedID)
-                        break
-
-                except HTTPError, e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(e) + "\n\n")
-                    trdBot.add_msg("Waiting to try again...")
-                    sleep(60)
-                    continue
-
-                except (APIException, ClientException, Exception) as e:
-                    trdBot.add_msg(e)
-                    logging.debug(str(e) + "\n\n")
-
-                    if str(e) == "timed out":
-                        trdBot.add_msg("Waiting to try again...")
-                        sleep(60)
-                        
-                    continue
+        sleep(60)
 
 
 if __name__ == "__main__":
-    trdBot = trdbot()
-
-    # set this to False to turn off error logging
-    # doing so is not recommended
-    errorLogging = True
-
-    if(errorLogging):
-        logging.basicConfig(
-            filename="trdbot_logerr.log", filemode='a', 
-            format="%(asctime)s\nIn %(filename)s "
-            "(%(funcName)s:%(lineno)s): %(message)s", 
-            datefmt="%Y-%m-%d %H:%M:%S", level=logging.DEBUG, 
-            stream=stderr
-            )
-
     main()
