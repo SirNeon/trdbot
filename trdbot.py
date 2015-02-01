@@ -170,7 +170,7 @@ def link_source(submission, permalink):
     print("Linking to source...", end='\r')
     while True:
         try:
-            submission.add_comment("[[source]]({}).".format(permalink))
+            submission.add_comment("[[source]]({})".format(permalink))
             break
         except (HTTPError, timeout):
             continue
