@@ -1,4 +1,3 @@
-from __future__ import print_function
 import os
 import re
 from socket import timeout
@@ -46,6 +45,7 @@ def login(username, password):
     while True:
         try:
             client.login(username, password)
+            print("Login successful.")
             break
         except (HTTPError, timeout) as e:
             continue
@@ -55,17 +55,19 @@ def login(username, password):
 
 
 def get_submissions(multireddit):
+    print("Getting submissions...", end='\r')
     while True:
         try:
-            submissions = client.get_subreddit(multireddit).get_new(limit=50)
+            submissions = client.get_subreddit(multireddit).get_hot(limit=50)
             break
-        except (HTTPError, timeout) as e:
+        except (HTTPError, timeout):
             continue
 
     return submissions
 
 
 def remove_noparticipation(content):
+    print("Removing np...", end='\r')
     if "np.reddit.com" in content:
         content = content.replace("np.reddit.com", "www.reddit.com")
 
@@ -76,6 +78,7 @@ def remove_noparticipation(content):
 
 
 def get_drama(submission):
+    print("Getting content...", end='\r')
     try:
         subreddit = str(submission.subreddit)
         karma = int(submission.score)
@@ -91,6 +94,7 @@ def get_drama(submission):
 
     if(karma >= MINIMUM_KARMA[subreddit]):
         cur.execute("INSERT INTO submissions VALUES(?)", (permalink,))
+        con.commit()
 
         if(submission.is_self):
             try:
@@ -113,7 +117,7 @@ def get_drama(submission):
             except AttributeError:
                 return None
 
-            reddit_url = REDDIT_URL_PATTERN.match(text)
+            reddit_url = REDDIT_URL_PATTERN.match(url)
 
             if reddit_url is None:
                 return None
@@ -127,6 +131,7 @@ def get_drama(submission):
 
 
 def submit_linkpost(title, url):
+    print("Submitting post...", end='\r')
     while True:
         try:
             subreddit = client.get_subreddit(POST_TO)
@@ -139,6 +144,7 @@ def submit_linkpost(title, url):
 
 
 def submit_selfpost(title, text):
+    print("Submitting post...", end='\r')
     while True:
         try:
             subreddit = client.get_subreddit(POST_TO)
@@ -151,18 +157,20 @@ def submit_selfpost(title, text):
 
 
 def set_flair(subreddit, submission):
+    print("Setting flair...", end='\r')
     while True:
         try:
-            submission.set_flair(POST_TO, submission, flair_text=SUBREDDIT_FLAIR[subreddit])
+            submission.set_flair(flair_text=SUBREDDIT_FLAIR[subreddit])
             break
         except (HTTPError, timeout):
             continue
 
 
 def link_source(submission, permalink):
+    print("Linking to source...", end='\r')
     while True:
         try:
-            submission.add_comment("[source]({}).".format(permalink))
+            submission.add_comment("[[source]]({}).".format(permalink))
             break
         except (HTTPError, timeout):
             continue
@@ -173,13 +181,15 @@ def main():
     for subreddit in SUBREDDIT_LIST:
         multireddit += subreddit + '+'
 
-    multreddit = multireddit.strip('+')
+    multireddit = multireddit.strip('+')
+
+    login(USERNAME, PASSWORD)
 
     while True:
-        login(USERNAME, PASSWORD)
         submissions = get_submissions(multireddit)
+
         for submission in submissions:
-            post = get_drama(submissions)
+            post = get_drama(submission)
 
             if post is None:
                 continue
@@ -197,8 +207,10 @@ def main():
                 post = submit_selfpost(submission_title, submission_content)
 
             set_flair(submission_source_subreddit, post)
+            
             link_source(post, submission_source)
 
+        print("Sleeping for 60s...", end='\r')
         sleep(60)
 
 
