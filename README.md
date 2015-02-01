@@ -5,7 +5,7 @@ trdbot
 
 Requirements
 ------------
-* Python 2.7
+* Python 3.4
 * Praw
 * SimpleConfigParser
 
